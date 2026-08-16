@@ -21,14 +21,16 @@ threading.Thread(target=run_dummy_server, daemon=True).start()
 # 2. Настройки бота
 # -------------------------------------------------------------
 TOKEN = os.environ.get("BOT_TOKEN", "8869463639:AAH-Eo0h258B8p_YcfTiR-CtP0-Z0ZCVnsk")
-ALLOWED_USER_ID = 1117053098
+ALLOWED_USERS = [1117053098, 6461846641]
+
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if message.from_user.id not in ALLOWED_USERS:
+
         await message.answer("🔒 Доступ ограничен.")
         return
     await message.answer("👋 Привет! Отправь мне видео, и я извлеку из него MP3.")
@@ -38,7 +40,8 @@ async def start_cmd(message: types.Message):
 # -------------------------------------------------------------
 @dp.message(F.video)
 async def convert_video_to_mp3(message: types.Message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if message.from_user.id not in ALLOWED_USERS:
+
         return
 
     status_msg = await message.answer("⏳ Скачиваю видео...")
