@@ -162,7 +162,7 @@ async def save_new_artist(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
-    new_artist = message.text
+        new_artist = message.text
     
 
         try:
@@ -177,7 +177,6 @@ async def save_new_artist(message: types.Message, state: FSMContext):
         
         await message.answer(f"✅ Автор успешно изменен на: **{new_artist}**")
         
-        # Отправляем обновленный файл
         audio_file = types.FSInputFile(audio_path)
         await message.answer_audio(audio_file, caption="Обновленный трек 🎵")
     except Exception as e:
@@ -185,7 +184,6 @@ async def save_new_artist(message: types.Message, state: FSMContext):
         
     await state.clear()
 
-# -------------------------------------------------------------
 # 6. Запуск
 # -------------------------------------------------------------
 async def main():
