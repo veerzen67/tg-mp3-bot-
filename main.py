@@ -150,7 +150,7 @@ async def save_new_title(message: types.Message, state: FSMContext):
         
     await state.clear()
 
-@dp.message(EditMetadata.waiting_for_artist)@dp.message(EditMetadata.waiting_for_artist)
+@dp.message(EditMetadata.waiting_for_artist)
 async def save_new_artist(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     if user_id not in ALLOWED_USERS:
