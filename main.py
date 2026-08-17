@@ -34,7 +34,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 # Состояния для машины состояний (ожидание ввода текста)
 class EditMetadata(StatesGroup):
-    waiting_ for_title = State()
+    waiting_for_title = State()
     waiting_for_artist = State()
 
 # Временное хранилище путей к файлам для каждого пользователя
