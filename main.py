@@ -6,6 +6,12 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3NoHeaderError
 
 # -------------------------------------------------------------
 # 1. Запуск фейкового веб-сервера для Render (чтобы не закрывал бот)
@@ -23,17 +29,23 @@ threading.Thread(target=run_dummy_server, daemon=True).start()
 TOKEN = os.environ.get("BOT_TOKEN", "8869463639:AAH-Eo0h258B8p_YcfTiR-CtP0-Z0ZCVnsk")
 ALLOWED_USERS = [1117053098, 6461846641]
 
-
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
+
+# Состояния для машины состояний (ожидание ввода текста)
+class EditMetadata(StatesGroup):
+    waiting_ for_title = State()
+    waiting_for_artist = State()
+
+# Временное хранилище путей к файлам для каждого пользователя
+user_files = {}
 
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
     if message.from_user.id not in ALLOWED_USERS:
-
         await message.answer("🔒 Доступ ограничен.")
         return
-    await message.answer("👋 Привет! Отправь мне видео, и я извлеку из него MP3.")
+    await message.answer("👋 Привет! Отправь мне видео, и я извлеку из него MP3 с возможностью изменить теги.")
 
 # -------------------------------------------------------------
 # 3. Конвертация видео в MP3
@@ -41,7 +53,6 @@ async def start_cmd(message: types.Message):
 @dp.message(F.video)
 async def convert_video_to_mp3(message: types.Message):
     if message.from_user.id not in ALLOWED_USERS:
-
         return
 
     status_msg = await message.answer("⏳ Скачиваю видео...")
@@ -57,29 +68,128 @@ async def convert_video_to_mp3(message: types.Message):
     
     await status_msg.edit_text("⚙️ Конвертирую в MP3...")
     
-    # Используем ffmpeg для конвертации
     cmd = f"ffmpeg -i {input_video} -vn -ar 44100 -ac 2 -b:a 192k {output_audio} -y"
     subprocess.run(cmd, shell=True, check=True)
     
     await status_msg.edit_text("Преобразую в аудиофайл...")
     
-    audio_file = types.FSInputFile(output_audio)
-    await message.answer_audio(audio_file, caption="Вот твое аудио! 🎵")
+    # Сохраняем путь к файлу для этого пользователя на случай изменения тегов
+    user_files[message.from_user.id] = output_audio
     
-    # Удаляем временные файлы
+    audio_file = types.FSInputFile(output_audio)
+    
+    # Создаем инлайн-кнопки под аудио
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎵 Изменить название", callback_data="edit_title"),
+            InlineKeyboardButton(text="👤 Изменить автора", callback_data="edit_artist")
+        ]
+    ])
+    
+    await message.answer_audio(audio_file, caption="Вот твое аудио! 🎵 Вы можете изменить теги кнопками ниже:", reply_markup=keyboard)
+    
     if os.path.exists(input_video):
         os.remove(input_video)
-    if os.path.exists(output_audio):
-        os.remove(output_audio)
     
     await status_msg.delete()
 
 # -------------------------------------------------------------
-# 4. Запуск
+# 4. Обработка нажатий на инлайн-кнопки
+# -------------------------------------------------------------
+@dp.callback_query(F.data == "edit_title")
+async def ask_title(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ALLOWED_USERS:
+        return
+    await callback.answer()
+    await state.set_state(EditMetadata.waiting_for_title)
+    await callback.message.answer("✏️ Введите новое **название** трека:")
+
+@dp.callback_query(F.data == "edit_artist")
+async def ask_artist(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ALLOWED_USERS:
+        return
+    await callback.answer()
+    await state.set_state(EditMetadata.waiting_for_artist)
+    await callback.message.answer("✏️ Введите нового **автора (исполнителя)** трека:")
+
+# -------------------------------------------------------------
+# 5. Сохранение нового названия или автора в файл
+# -------------------------------------------------------------
+@dp.message(EditMetadata.waiting_for_title)
+async def save_new_title(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id not in ALLOWED_USERS:
+        return
+    
+    audio_path = user_files.get(user_id)
+    if not audio_path or not os.path.exists(audio_path):
+        await message.answer("❌ Ошибка: файл не найден или устарел. Отправьте видео заново.")
+        await state.clear()
+        return
+
+    new_title = message.text
+    
+    try:
+        try:
+            audio = EasyID3(audio_path)
+        except ID3NoHeaderError:
+            audio = EasyID3()
+            audio.save(audio_path)
+            audio = EasyID3(audio_path)
+            
+        audio['title'] = new_title
+        audio.save()
+        
+        await message.answer(f"✅ Название успешно изменено на: **{new_title}**")
+        
+        # Отправляем обновленный файл
+        audio_file = types.FSInputFile(audio_path)
+        await message.answer_audio(audio_file, caption="Обновленный трек 🎵")
+    except Exception as e:
+        await message.answer(f"❌ Произошла ошибка при изменении тегов: {e}")
+        
+    await state.clear()
+
+@dp.message(EditMetadata.waiting_for_artist)
+async def save_new_artist(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id not in ALLOWED_USERS:
+        return
+    
+    audio_path = user_files.get(user_id)
+    if not audio_path or not os.path.exists(audio_path):
+        await message.answer("❌ Ошибка: файл не найден или устарел. Отправьте видео заново.")
+        await state.clear()
+        return
+
+    new_artist = message.text
+    
+
+        try:
+            audio = EasyID3(audio_path)
+        except ID3NoHeaderError:
+            audio = EasyID3()
+            audio.save(audio_path)
+            audio = EasyID3(audio_path)
+            
+        audio['artist'] = new_artist
+        audio.save()
+        
+        await message.answer(f"✅ Автор успешно изменен на: **{new_artist}**")
+        
+        # Отправляем обновленный файл
+        audio_file = types.FSInputFile(audio_path)
+        await message.answer_audio(audio_file, caption="Обновленный трек 🎵")
+    except Exception as e:
+        await message.answer(f"❌ Произошла ошибка при изменении тегов: {e}")
+        
+    await state.clear()
+
+# -------------------------------------------------------------
+# 6. Запуск
 # -------------------------------------------------------------
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
