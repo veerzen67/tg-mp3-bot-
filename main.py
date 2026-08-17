@@ -150,42 +150,39 @@ async def save_new_title(message: types.Message, state: FSMContext):
         
     await state.clear()
 
-@dp.message(EditMetadata.waiting_for_artist)
+@dp.message(EditMetadata.waiting_for_artist)@dp.message(EditMetadata.waiting_for_artist)
 async def save_new_artist(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     if user_id not in ALLOWED_USERS:
         return
-    
+
     audio_path = user_files.get(user_id)
     if not audio_path or not os.path.exists(audio_path):
-        await message.answer("❌ Ошибка: файл не найден или устарел. Отправьте видео заново.")
+        await message.answer("❌ Ошибка: файл не найден.")
         await state.clear()
         return
 
-        new_artist = message.text
-    
+    new_artist = message.text
 
+    try:
         try:
             audio = EasyID3(audio_path)
         except ID3NoHeaderError:
             audio = EasyID3()
             audio.save(audio_path)
             audio = EasyID3(audio_path)
-            
+
         audio['artist'] = new_artist
         audio.save()
-        
-        await message.answer(f"✅ Автор успешно изменен на: **{new_artist}**")
-        
+
+        await message.answer(f"✅ Автор успешно изменен на: {new_artist}")
         audio_file = types.FSInputFile(audio_path)
         await message.answer_audio(audio_file, caption="Обновленный трек 🎵")
     except Exception as e:
-        await message.answer(f"❌ Произошла ошибка при изменении тегов: {e}")
-        
+        await message.answer(f"❌ Произошла ошибка: {e}")
+
     await state.clear()
 
-# 6. Запуск
-# -------------------------------------------------------------
 async def main():
     await dp.start_polling(bot)
 
